@@ -1,10 +1,15 @@
 #!/bin/bash
 # =====================================================================
 # UNIVERSAL REVERSE PROXY INSTALLER — Minimal Stability Edition
-# Версия: 1.6.1-unified  (Node.js 20 LTS | dual-cert LE/Timeweb | auto-renew)
+# Версия: 1.6.2-unified  (Node.js 20 LTS | dual-cert LE/Timeweb | auto-renew)
 # Автор  : Proxy Deployment System
 #
 # Версионная история:
+# v1.6.2-unified (2024-12-19) - Исправление установки зависимостей
+#   • Исправлена проблема с установкой npm зависимостей
+#   • Добавлена проверка установки критических модулей
+#   • Улучшена диагностика PM2 запуска
+#   • Добавлена автоматическая перезагрузка при сбоях
 # v1.6.1-unified (2024-12-19) - Исправление функции read_var
 #   • Исправлена ошибка в функции read_var, которая вызывала вылет скрипта
 #   • Улучшена обработка ввода пользователя
@@ -30,13 +35,13 @@
 #
 # ▸ Примеры запуска
 #   # Бесплатный Let's Encrypt
-#   sudo bash installer-v1.6.1-unified.sh
+#   sudo bash installer-v1.6.2-unified.sh
 #
 #   # Коммерческий сертификат Timeweb PRO
 #   export CERT_MODE=timeweb
 #   export TIMEWEB_TOKEN="twc_xxx…"          # API read-only ключ
 #   export TIMEWEB_CERT_ID=123456
-#   sudo bash installer-v1.6.1-unified.sh
+#   sudo bash installer-v1.6.2-unified.sh
 # =====================================================================
 set -euo pipefail
 
@@ -303,11 +308,40 @@ good "Nginx настроен"
 
 # ─── npm install + PM2 ───────────────────────────────────────────────
 cd "$PROJECT_DIR"
-npm ci --production -s
+info "Установка Node.js зависимостей…"
+# Удаляем node_modules если есть, чтобы избежать конфликтов
+rm -rf node_modules package-lock.json 2>/dev/null || true
+# Устанавливаем зависимости с подробным выводом
+npm install --production
+if [[ $? -ne 0 ]]; then
+  warn "npm install не удался, пробуем альтернативный способ…"
+  npm cache clean --force
+  npm install --production
+fi
+good "Node.js зависимости установлены"
+
+# Проверяем, что основные модули установились
+if [[ ! -d "node_modules/dotenv" ]] || [[ ! -d "node_modules/express" ]] || [[ ! -d "node_modules/http-proxy-middleware" ]]; then
+  fail "Критические модули не установились. Проверьте подключение к интернету и права доступа."
+fi
+
+info "Запуск приложения через PM2…"
 pm2 start ecosystem.config.js --env production
 pm2 save
 pm2 startup systemd -u root --hp /root >/dev/null
 systemctl enable pm2-root
+
+# Проверяем, что приложение запустилось
+sleep 2
+if ! pm2 list | grep -q "my-proxy.*online"; then
+  warn "PM2 приложение не запустилось, пробуем перезапустить…"
+  pm2 restart my-proxy
+  sleep 2
+  if ! pm2 list | grep -q "my-proxy.*online"; then
+    fail "Не удалось запустить приложение через PM2. Проверьте логи: pm2 logs my-proxy"
+  fi
+fi
+good "PM2 настроен и запущен"
 
 # ─── UFW ────────────────────────────────────────────────────────────
 ufw --force enable
