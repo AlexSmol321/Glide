@@ -24,7 +24,7 @@
 
 ```bash
 # Скачайте скрипт
-wget https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/installer-v1.6-unified.sh
+wget https://raw.githubusercontent.com/AlexSmol321/Glide/main/installer-v1.6-unified.sh
 
 # Сделайте исполняемым
 chmod +x installer-v1.6-unified.sh
