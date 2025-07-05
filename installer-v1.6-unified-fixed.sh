@@ -1,10 +1,15 @@
 #!/bin/bash
 # =====================================================================
 # UNIVERSAL REVERSE PROXY INSTALLER — Minimal Stability Edition
-# Версия: 1.6.2-unified  (Node.js 20 LTS | dual-cert LE/Timeweb | auto-renew)
+# Версия: 1.6.3-unified  (Node.js 20 LTS | dual-cert LE/Timeweb | auto-renew)
 # Автор  : Proxy Deployment System
 #
 # Версионная история:
+# v1.6.3-unified (2024-12-19) - Улучшенный выбор режима сертификации
+#   • Добавлен обязательный выбор режима SSL (Let's Encrypt / Timeweb PRO)
+#   • Добавлена подробная инструкция по получению ID сертификата Timeweb
+#   • Улучшен пользовательский интерфейс установки
+#   • Добавлена валидация выбора режима
 # v1.6.2-unified (2024-12-19) - Исправление установки зависимостей
 #   • Исправлена проблема с установкой npm зависимостей
 #   • Добавлена проверка установки критических модулей
@@ -35,13 +40,13 @@
 #
 # ▸ Примеры запуска
 #   # Бесплатный Let's Encrypt
-#   sudo bash installer-v1.6.2-unified.sh
+#   sudo bash installer-v1.6.3-unified.sh
 #
 #   # Коммерческий сертификат Timeweb PRO
 #   export CERT_MODE=timeweb
 #   export TIMEWEB_TOKEN="twc_xxx…"          # API read-only ключ
 #   export TIMEWEB_CERT_ID=123456
-#   sudo bash installer-v1.6.2-unified.sh
+#   sudo bash installer-v1.6.3-unified.sh
 # =====================================================================
 set -euo pipefail
 
@@ -111,12 +116,39 @@ validate_domain "$PROXY_DOMAIN"
 validate_domain "$TARGET_DOMAIN"
 check_domain_availability "$PROXY_DOMAIN"
 
-CERT_MODE=${CERT_MODE:-letsencrypt}
-if [[ $CERT_MODE == "timeweb" ]]; then
-  read_var TIMEWEB_TOKEN    "Timeweb API-token (скрытый ввод): " "" 1
-  read_var TIMEWEB_CERT_ID  "ID заказа сертификата            : " ""
-  [[ -z "$TIMEWEB_TOKEN" || -z "$TIMEWEB_CERT_ID" ]] && fail "Необходимы TIMEWEB_TOKEN и TIMEWEB_CERT_ID для режима timeweb"
-fi
+# ─── выбор режима сертификации ────────────────────────────────────────
+info "Выберите режим SSL-сертификации:"
+echo "1) Let's Encrypt (бесплатно, автоматическое продление)"
+echo "2) Timeweb PRO (коммерческий, с автоматическим продлением)"
+echo ""
+read_var CERT_CHOICE "Введите номер (1 или 2): " ""
+
+case $CERT_CHOICE in
+  1)
+    CERT_MODE=letsencrypt
+    good "Выбран режим: Let's Encrypt"
+    ;;
+  2)
+    CERT_MODE=timeweb
+    good "Выбран режим: Timeweb PRO"
+    info "Для Timeweb PRO вам потребуется:"
+    echo "  • API токен (создается в панели Timeweb)"
+    echo "  • ID сертификата (указывается в заказе SSL)"
+    echo ""
+    echo "Где взять ID сертификата:"
+    echo "  1. Зайдите в панель Timeweb"
+    echo "  2. Перейдите в раздел 'SSL-сертификаты'"
+    echo "  3. Найдите ваш заказ сертификата"
+    echo "  4. ID будет указан в деталях заказа"
+    echo ""
+    read_var TIMEWEB_TOKEN    "Timeweb API-token (скрытый ввод): " "" 1
+    read_var TIMEWEB_CERT_ID  "ID заказа сертификата            : " ""
+    [[ -z "$TIMEWEB_TOKEN" || -z "$TIMEWEB_CERT_ID" ]] && fail "Необходимы TIMEWEB_TOKEN и TIMEWEB_CERT_ID для режима timeweb"
+    ;;
+  *)
+    fail "Неверный выбор. Введите 1 для Let's Encrypt или 2 для Timeweb PRO"
+    ;;
+esac
 
 PROJECT_DIR=/opt/$PROJECT_NAME
 mkdir -p "$PROJECT_DIR"/{src,config,logs,scripts}
