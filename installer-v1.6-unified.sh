@@ -1,10 +1,14 @@
 #!/bin/bash
 # =====================================================================
 # UNIVERSAL REVERSE PROXY INSTALLER — Minimal Stability Edition
-# Версия: 1.6-unified  (Node.js 20 LTS | dual-cert LE/Timeweb | auto-renew)
+# Версия: 1.6.1-unified  (Node.js 20 LTS | dual-cert LE/Timeweb | auto-renew)
 # Автор  : Proxy Deployment System
 #
 # Версионная история:
+# v1.6.1-unified (2024-12-19) - Исправление функции read_var
+#   • Исправлена ошибка в функции read_var, которая вызывала вылет скрипта
+#   • Улучшена обработка ввода пользователя
+#   • Добавлена дополнительная отладка
 # v1.6-unified (2024-12-19) - Исправления безопасности и стабильности
 #   • Добавлена проверка валидности доменов
 #   • Исправлена проблема с экранированием в nginx конфигах
@@ -26,13 +30,13 @@
 #
 # ▸ Примеры запуска
 #   # Бесплатный Let's Encrypt
-#   sudo bash installer-v1.6-unified.sh
+#   sudo bash installer-v1.6.1-unified.sh
 #
 #   # Коммерческий сертификат Timeweb PRO
 #   export CERT_MODE=timeweb
 #   export TIMEWEB_TOKEN="twc_xxx…"          # API read-only ключ
 #   export TIMEWEB_CERT_ID=123456
-#   sudo bash installer-v1.6-unified.sh
+#   sudo bash installer-v1.6.1-unified.sh
 # =====================================================================
 set -euo pipefail
 
@@ -62,14 +66,31 @@ check_domain_availability() {
 }
 
 # ─── функция чтения переменной с дефолтом ────────────────────────────
-read_var(){ local v=$1 prompt=$2 def=$3 silent=${4:-0}
-  [[ -n "${!v:-}" ]] && return
-  if (( silent )); then
-      read -s -p "$prompt" $v && echo
-  else
-      read -p "$prompt" $v
+read_var() {
+  local var_name=$1
+  local prompt=$2
+  local default=$3
+  local silent=${4:-0}
+  
+  # Если переменная уже установлена, используем её
+  if [[ -n "${!var_name:-}" ]]; then
+    return
   fi
-  [[ -z "${!v}" ]] && eval "$v=$def"
+  
+  # Читаем значение от пользователя
+  if (( silent )); then
+    read -s -p "$prompt" value && echo
+  else
+    read -p "$prompt" value
+  fi
+  
+  # Если значение пустое, используем дефолт
+  if [[ -z "$value" ]]; then
+    value="$default"
+  fi
+  
+  # Устанавливаем переменную
+  eval "$var_name=\"$value\""
 }
 
 # ─── ввод параметров ─────────────────────────────────────────────────
