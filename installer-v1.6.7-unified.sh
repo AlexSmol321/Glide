@@ -1,10 +1,15 @@
 #!/bin/bash
 # =====================================================================
 # UNIVERSAL REVERSE PROXY INSTALLER — Minimal Stability Edition
-# Версия: 1.6.6-unified  (Node.js 20 LTS | dual-cert LE/Timeweb | auto-renew)
+# Версия: 1.6.7-unified  (Node.js 20 LTS | dual-cert LE/Timeweb | auto-renew)
 # Автор  : Proxy Deployment System
 #
 # Версионная история:
+# v1.6.7-unified (2024-12-19) - Поддержка JWT токенов Timeweb
+#   • Добавлена поддержка JWT токенов (eyJ...)
+#   • Расширен список API endpoints для тестирования
+#   • Улучшена диагностика подключения к API
+#   • Добавлены множественные endpoints для скачивания сертификатов
 # v1.6.6-unified (2024-12-19) - Улучшенная поддержка Timeweb токенов
 #   • Добавлена поддержка разных форматов API токенов (twc_, tw_, timeweb_)
 #   • Улучшена диагностика скачивания сертификатов
@@ -55,13 +60,13 @@
 #
 # ▸ Примеры запуска
 #   # Бесплатный Let's Encrypt
-#   sudo bash installer-v1.6.6-unified.sh
+#   sudo bash installer-v1.6.7-unified.sh
 #
 #   # Коммерческий сертификат Timeweb PRO
 #   export CERT_MODE=timeweb
 #   export TIMEWEB_TOKEN="twc_xxx…"          # API read-only ключ
 #   export TIMEWEB_CERT_ID=123456
-#   sudo bash installer-v1.6.6-unified.sh
+#   sudo bash installer-v1.6.7-unified.sh
 # =====================================================================
 set -euo pipefail
 
@@ -156,8 +161,10 @@ case $CERT_CHOICE in
     echo "   • Зайдите в панель Timeweb → Настройки → API"
     echo "   • Нажмите 'Создать токен'"
     echo "   • Выберите права: 'Чтение' для SSL-сертификатов"
-    echo "   • Скопируйте токен (может начинаться с 'twc_', 'tw_' или 'timeweb_')"
-    echo "   • Если токен не начинается с этих префиксов, используйте его как есть"
+    echo "   • Скопируйте токен (поддерживаются форматы):"
+    echo "     - JWT токены (начинаются с 'eyJ')"
+    echo "     - Стандартные токены (twc_, tw_, timeweb_)"
+    echo "     - Любые другие форматы"
     echo ""
     echo "2️⃣ Получение ID сертификата:"
     echo "   • Зайдите в панель Timeweb → SSL-сертификаты"
@@ -180,13 +187,16 @@ case $CERT_CHOICE in
     fi
     
     # Проверка формата токена (поддержка разных форматов)
-    if [[ ! "$TIMEWEB_TOKEN" =~ ^(twc_|tw_|timeweb_)[a-zA-Z0-9_-]+$ ]]; then
-      warn "API токен должен начинаться с 'twc_', 'tw_' или 'timeweb_'"
-      warn "Текущий токен: ${TIMEWEB_TOKEN:0:10}..."
+    if [[ "$TIMEWEB_TOKEN" =~ ^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$ ]]; then
+      good "Обнаружен JWT токен Timeweb"
+      info "JWT токены поддерживаются"
+    elif [[ "$TIMEWEB_TOKEN" =~ ^(twc_|tw_|timeweb_)[a-zA-Z0-9_-]+$ ]]; then
+      good "Обнаружен стандартный API токен"
+    else
+      warn "Нестандартный формат токена"
+      warn "Текущий токен: ${TIMEWEB_TOKEN:0:20}..."
       warn "Проверьте правильность токена в панели Timeweb"
       info "Продолжаем установку, но могут быть проблемы с API..."
-    else
-      good "Формат токена корректный"
     fi
     
     # Проверка формата ID
@@ -201,10 +211,15 @@ case $CERT_CHOICE in
       good "API токен работает корректно"
     elif curl -sf -H "Authorization: Bearer $TIMEWEB_TOKEN" "https://api.timeweb.cloud/api/v1/ssl" >/dev/null 2>&1; then
       good "API токен работает корректно (альтернативный endpoint)"
+    elif curl -sf -H "Authorization: Bearer $TIMEWEB_TOKEN" "https://api.timeweb.cloud/api/v2/ssl-certificates" >/dev/null 2>&1; then
+      good "API токен работает корректно (v2 endpoint)"
+    elif curl -sf -H "Authorization: Bearer $TIMEWEB_TOKEN" "https://api.timeweb.cloud/ssl-certificates" >/dev/null 2>&1; then
+      good "API токен работает корректно (корневой endpoint)"
     else
       warn "Не удалось подключиться к Timeweb API"
       warn "Проверьте правильность токена и подключение к интернету"
       warn "Возможно, API endpoint изменился. Проверьте документацию Timeweb."
+      info "Продолжаем установку, попробуем скачать сертификат напрямую..."
     fi
     ;;
   *)
@@ -396,18 +411,34 @@ else
   
   # Пробуем скачать сертификат
   info "Скачиваем сертификат..."
-  if ! curl -sf "${hdr[@]}" "$api/ssl-certificates/$TIMEWEB_CERT_ID/download" -o "$tmp/c.zip"; then
-    warn "Ошибка скачивания через основной endpoint"
-    warn "Пробуем альтернативный endpoint..."
-    
-    # Пробуем альтернативный endpoint
-    if ! curl -sf "${hdr[@]}" "$api/ssl/$TIMEWEB_CERT_ID/download" -o "$tmp/c.zip"; then
-      fail "Ошибка скачивания сертификата Timeweb"
-      fail "Проверьте:"
-      fail "  • Правильность API токена"
-      fail "  • Правильность ID сертификата"
-      fail "  • Доступность API Timeweb"
+  
+  # Список возможных endpoints для попытки
+  endpoints=(
+    "$api/ssl-certificates/$TIMEWEB_CERT_ID/download"
+    "$api/ssl/$TIMEWEB_CERT_ID/download"
+    "https://api.timeweb.cloud/api/v2/ssl-certificates/$TIMEWEB_CERT_ID/download"
+    "https://api.timeweb.cloud/ssl-certificates/$TIMEWEB_CERT_ID/download"
+  )
+  
+  success=false
+  for endpoint in "${endpoints[@]}"; do
+    info "Пробуем endpoint: $endpoint"
+    if curl -sf "${hdr[@]}" "$endpoint" -o "$tmp/c.zip"; then
+      good "Сертификат успешно скачан с: $endpoint"
+      success=true
+      break
+    else
+      warn "Не удалось скачать с: $endpoint"
     fi
+  done
+  
+  if [[ "$success" == false ]]; then
+    fail "Ошибка скачивания сертификата Timeweb"
+    fail "Проверьте:"
+    fail "  • Правильность API токена"
+    fail "  • Правильность ID сертификата"
+    fail "  • Доступность API Timeweb"
+    fail "  • Права токена на чтение SSL-сертификатов"
   fi
   
   info "Распаковываем сертификат..."
