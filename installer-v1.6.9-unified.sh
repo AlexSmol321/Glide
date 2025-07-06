@@ -1,10 +1,15 @@
 #!/bin/bash
 # =====================================================================
 # UNIVERSAL REVERSE PROXY INSTALLER — Minimal Stability Edition
-# Версия: 1.6.8-unified  (Node.js 20 LTS | dual-cert LE/Timeweb | auto-renew)
+# Версия: 1.6.9-unified  (Node.js 20 LTS | dual-cert LE/Timeweb | auto-renew)
 # Автор  : Proxy Deployment System
 #
 # Версионная история:
+# v1.6.9-unified (2024-12-19) - Улучшенная стабильность и обработка ошибок
+#   • Добавлены таймауты для curl запросов (10-60 сек)
+#   • Опциональное тестирование API (можно пропустить)
+#   • Улучшена обработка сетевых ошибок и пустых ответов
+#   • Добавлены паузы между запросами для стабильности
 # v1.6.8-unified (2024-12-19) - Расширенная диагностика и fallback на Let's Encrypt
 #   • Добавлена подробная диагностика HTTP кодов ответа
 #   • Расширен список API endpoints и базовых URL
@@ -65,13 +70,13 @@
 #
 # ▸ Примеры запуска
 #   # Бесплатный Let's Encrypt
-#   sudo bash installer-v1.6.8-unified.sh
+#   sudo bash installer-v1.6.9-unified.sh
 #
 #   # Коммерческий сертификат Timeweb PRO
 #   export CERT_MODE=timeweb
 #   export TIMEWEB_TOKEN="twc_xxx…"          # API read-only ключ
 #   export TIMEWEB_CERT_ID=123456
-#   sudo bash installer-v1.6.8-unified.sh
+#   sudo bash installer-v1.6.9-unified.sh
 # =====================================================================
 set -euo pipefail
 
@@ -211,7 +216,11 @@ case $CERT_CHOICE in
     fi
     
     info "Проверка подключения к Timeweb API..."
-    # Тестовая проверка API с подробной диагностикой
+    read -p "Хотите протестировать API подключение? (y/n, по умолчанию y): " test_api
+    test_api=${test_api:-y}
+    
+    if [[ "$test_api" =~ ^[Yy]$ ]]; then
+      # Тестовая проверка API с подробной диагностикой
     api_endpoints=(
       "https://api.timeweb.cloud/api/v1/ssl-certificates"
       "https://api.timeweb.cloud/api/v1/ssl"
@@ -224,7 +233,19 @@ case $CERT_CHOICE in
     success=false
     for endpoint in "${api_endpoints[@]}"; do
       info "Тестируем endpoint: $endpoint"
-      response=$(curl -sf -w "%{http_code}" -H "Authorization: Bearer $TIMEWEB_TOKEN" "$endpoint" 2>/dev/null)
+      
+      # Добавляем таймаут и более надежную обработку ошибок
+      response=$(curl -sf --connect-timeout 10 --max-time 30 -w "%{http_code}" \
+                -H "Authorization: Bearer $TIMEWEB_TOKEN" \
+                -H "User-Agent: Timeweb-API-Test/1.0" \
+                "$endpoint" 2>/dev/null || echo "000")
+      
+      # Проверяем, что получили ответ
+      if [[ -z "$response" ]]; then
+        warn "Пустой ответ для: $endpoint"
+        continue
+      fi
+      
       http_code="${response: -3}"
       
       if [[ "$http_code" == "200" ]]; then
@@ -237,9 +258,14 @@ case $CERT_CHOICE in
         warn "Доступ запрещен (403) для: $endpoint"
       elif [[ "$http_code" == "404" ]]; then
         warn "Endpoint не найден (404) для: $endpoint"
+      elif [[ "$http_code" == "000" ]]; then
+        warn "Ошибка подключения для: $endpoint"
       else
         warn "HTTP код $http_code для: $endpoint"
       fi
+      
+      # Небольшая пауза между запросами
+      sleep 1
     done
     
     if [[ "$success" == false ]]; then
@@ -247,6 +273,9 @@ case $CERT_CHOICE in
       warn "Проверьте правильность токена и подключение к интернету"
       warn "Возможно, API endpoint изменился. Проверьте документацию Timeweb."
       info "Продолжаем установку, попробуем скачать сертификат напрямую..."
+    fi
+    else
+      info "Пропускаем тестирование API, продолжаем установку..."
     fi
     ;;
   *)
@@ -464,13 +493,20 @@ else
   success=false
   for endpoint in "${endpoints[@]}"; do
     info "Пробуем endpoint: $endpoint"
-    if curl -sf "${hdr[@]}" "$endpoint" -o "$tmp/c.zip"; then
+    
+    # Добавляем таймауты и более надежную обработку ошибок
+    if curl -sf --connect-timeout 15 --max-time 60 "${hdr[@]}" \
+       -H "User-Agent: Timeweb-Cert-Download/1.0" \
+       "$endpoint" -o "$tmp/c.zip"; then
       good "Сертификат успешно скачан с: $endpoint"
       success=true
       break
     else
       warn "Не удалось скачать с: $endpoint"
     fi
+    
+    # Небольшая пауза между попытками
+    sleep 2
   done
   
   if [[ "$success" == false ]]; then
