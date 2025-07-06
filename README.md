@@ -66,19 +66,19 @@
 - ✅ Проверка подключения к Timeweb API
 - ✅ Улучшен пользовательский интерфейс
 
-**Используйте файл `installer-v1.6-unified-fixed.sh`** - это исправленная версия, которая работает корректно.
+**Используйте файл `installer-v1.6.5-unified.sh`** - это последняя исправленная версия с правильными API endpoints.
 
 ### Быстрая установка (Let's Encrypt)
 
 ```bash
-# Скачайте скрипт (исправленная версия)
-wget https://raw.githubusercontent.com/AlexSmol321/Glide/main/installer-v1.6-unified-fixed.sh
+# Скачайте скрипт (последняя версия)
+wget https://raw.githubusercontent.com/AlexSmol321/Glide/main/installer-v1.6.5-unified.sh
 
 # Сделайте исполняемым
-chmod +x installer-v1.6-unified-fixed.sh
+chmod +x installer-v1.6.5-unified.sh
 
 # Запустите установку
-sudo bash installer-v1.6-unified-fixed.sh
+sudo bash installer-v1.6.5-unified.sh
 ```
 
 ### Установка с Timeweb PRO сертификатом
@@ -90,7 +90,7 @@ export TIMEWEB_TOKEN="twc_your_api_token_here"
 export TIMEWEB_CERT_ID=123456
 
 # Запустите установку
-sudo bash installer-v1.6-unified-fixed.sh
+sudo bash installer-v1.6.5-unified.sh
 ```
 
 ## 📝 Процесс установки
