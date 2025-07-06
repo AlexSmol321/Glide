@@ -1,10 +1,15 @@
 #!/bin/bash
 # =====================================================================
 # UNIVERSAL REVERSE PROXY INSTALLER — Minimal Stability Edition
-# Версия: 1.6.5-unified  (Node.js 20 LTS | dual-cert LE/Timeweb | auto-renew)
+# Версия: 1.6.6-unified  (Node.js 20 LTS | dual-cert LE/Timeweb | auto-renew)
 # Автор  : Proxy Deployment System
 #
 # Версионная история:
+# v1.6.6-unified (2024-12-19) - Улучшенная поддержка Timeweb токенов
+#   • Добавлена поддержка разных форматов API токенов (twc_, tw_, timeweb_)
+#   • Улучшена диагностика скачивания сертификатов
+#   • Добавлена проверка структуры архива сертификата
+#   • Улучшена обработка ошибок API
 # v1.6.5-unified (2024-12-19) - Исправление API endpoints Timeweb
 #   • Исправлен API endpoint с /api/v2 на /api/v1
 #   • Добавлена поддержка альтернативных API endpoints
@@ -50,13 +55,13 @@
 #
 # ▸ Примеры запуска
 #   # Бесплатный Let's Encrypt
-#   sudo bash installer-v1.6.5-unified.sh
+#   sudo bash installer-v1.6.6-unified.sh
 #
 #   # Коммерческий сертификат Timeweb PRO
 #   export CERT_MODE=timeweb
 #   export TIMEWEB_TOKEN="twc_xxx…"          # API read-only ключ
 #   export TIMEWEB_CERT_ID=123456
-#   sudo bash installer-v1.6.5-unified.sh
+#   sudo bash installer-v1.6.6-unified.sh
 # =====================================================================
 set -euo pipefail
 
@@ -151,7 +156,8 @@ case $CERT_CHOICE in
     echo "   • Зайдите в панель Timeweb → Настройки → API"
     echo "   • Нажмите 'Создать токен'"
     echo "   • Выберите права: 'Чтение' для SSL-сертификатов"
-    echo "   • Скопируйте токен (начинается с 'twc_')"
+    echo "   • Скопируйте токен (может начинаться с 'twc_', 'tw_' или 'timeweb_')"
+    echo "   • Если токен не начинается с этих префиксов, используйте его как есть"
     echo ""
     echo "2️⃣ Получение ID сертификата:"
     echo "   • Зайдите в панель Timeweb → SSL-сертификаты"
@@ -173,10 +179,14 @@ case $CERT_CHOICE in
       fail "Необходимы TIMEWEB_TOKEN и TIMEWEB_CERT_ID для режима timeweb"
     fi
     
-    # Проверка формата токена
-    if [[ ! "$TIMEWEB_TOKEN" =~ ^twc_[a-zA-Z0-9]+$ ]]; then
-      warn "API токен должен начинаться с 'twc_' и содержать только буквы и цифры"
+    # Проверка формата токена (поддержка разных форматов)
+    if [[ ! "$TIMEWEB_TOKEN" =~ ^(twc_|tw_|timeweb_)[a-zA-Z0-9_-]+$ ]]; then
+      warn "API токен должен начинаться с 'twc_', 'tw_' или 'timeweb_'"
+      warn "Текущий токен: ${TIMEWEB_TOKEN:0:10}..."
       warn "Проверьте правильность токена в панели Timeweb"
+      info "Продолжаем установку, но могут быть проблемы с API..."
+    else
+      good "Формат токена корректный"
     fi
     
     # Проверка формата ID
@@ -372,15 +382,66 @@ else
   api="https://api.timeweb.cloud/api/v1"
   hdr=(-H "Authorization: Bearer $TIMEWEB_TOKEN" -H "Accept: application/zip")
   tmp=$(mktemp -d); trap 'rm -rf $tmp' EXIT
-  if ! curl -sf "${hdr[@]}" "$api/ssl-certificates/$TIMEWEB_CERT_ID/download" -o "$tmp/c.zip"; then
-    fail "Ошибка скачивания сертификата Timeweb"
+  
+  info "Проверяем доступность сертификата ID: $TIMEWEB_CERT_ID"
+  
+  # Сначала проверим статус сертификата
+  if ! curl -sf -H "Authorization: Bearer $TIMEWEB_TOKEN" "$api/ssl-certificates/$TIMEWEB_CERT_ID" >/dev/null 2>&1; then
+    warn "Не удалось получить информацию о сертификате ID: $TIMEWEB_CERT_ID"
+    warn "Проверьте правильность ID сертификата"
+    warn "Попробуем скачать напрямую..."
+  else
+    good "Сертификат найден в API"
   fi
+  
+  # Пробуем скачать сертификат
+  info "Скачиваем сертификат..."
+  if ! curl -sf "${hdr[@]}" "$api/ssl-certificates/$TIMEWEB_CERT_ID/download" -o "$tmp/c.zip"; then
+    warn "Ошибка скачивания через основной endpoint"
+    warn "Пробуем альтернативный endpoint..."
+    
+    # Пробуем альтернативный endpoint
+    if ! curl -sf "${hdr[@]}" "$api/ssl/$TIMEWEB_CERT_ID/download" -o "$tmp/c.zip"; then
+      fail "Ошибка скачивания сертификата Timeweb"
+      fail "Проверьте:"
+      fail "  • Правильность API токена"
+      fail "  • Правильность ID сертификата"
+      fail "  • Доступность API Timeweb"
+    fi
+  fi
+  
+  info "Распаковываем сертификат..."
   if ! unzip -qo "$tmp/c.zip" -d "$tmp"; then
     fail "Ошибка распаковки сертификата Timeweb"
   fi
-  cat "$tmp/certificate.crt" "$tmp/ca_bundle.crt" > /etc/ssl/certs/$PROXY_DOMAIN.pem
-  mv  "$tmp/private.key" /etc/ssl/private/$PROXY_DOMAIN.key
+  
+  # Проверяем наличие файлов
+  if [[ ! -f "$tmp/certificate.crt" ]] || [[ ! -f "$tmp/private.key" ]]; then
+    warn "Нестандартная структура архива, проверяем содержимое..."
+    ls -la "$tmp/"
+    # Ищем файлы сертификата
+    cert_file=$(find "$tmp" -name "*.crt" -o -name "*.pem" | head -1)
+    key_file=$(find "$tmp" -name "*.key" -o -name "*private*" | head -1)
+    
+    if [[ -n "$cert_file" && -n "$key_file" ]]; then
+      good "Найдены файлы сертификата: $cert_file, $key_file"
+      cat "$cert_file" > /etc/ssl/certs/$PROXY_DOMAIN.pem
+      cp "$key_file" /etc/ssl/private/$PROXY_DOMAIN.key
+    else
+      fail "Не найдены файлы сертификата в архиве"
+    fi
+  else
+    # Стандартная структура
+    if [[ -f "$tmp/ca_bundle.crt" ]]; then
+      cat "$tmp/certificate.crt" "$tmp/ca_bundle.crt" > /etc/ssl/certs/$PROXY_DOMAIN.pem
+    else
+      cat "$tmp/certificate.crt" > /etc/ssl/certs/$PROXY_DOMAIN.pem
+    fi
+    cp "$tmp/private.key" /etc/ssl/private/$PROXY_DOMAIN.key
+  fi
+  
   chmod 600 /etc/ssl/private/$PROXY_DOMAIN.key
+  good "Сертификат успешно установлен"
 fi
 chmod 644 /etc/ssl/certs/$PROXY_DOMAIN.pem
 
