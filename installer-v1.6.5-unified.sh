@@ -1,10 +1,15 @@
 #!/bin/bash
 # =====================================================================
 # UNIVERSAL REVERSE PROXY INSTALLER — Minimal Stability Edition
-# Версия: 1.6.4-unified  (Node.js 20 LTS | dual-cert LE/Timeweb | auto-renew)
+# Версия: 1.6.5-unified  (Node.js 20 LTS | dual-cert LE/Timeweb | auto-renew)
 # Автор  : Proxy Deployment System
 #
 # Версионная история:
+# v1.6.5-unified (2024-12-19) - Исправление API endpoints Timeweb
+#   • Исправлен API endpoint с /api/v2 на /api/v1
+#   • Добавлена поддержка альтернативных API endpoints
+#   • Улучшена диагностика проблем с API
+#   • Добавлены предупреждения о возможных изменениях API
 # v1.6.4-unified (2024-12-19) - Улучшенная поддержка Timeweb PRO
 #   • Добавлена подробная пошаговая инструкция по получению ID сертификата
 #   • Добавлена валидация формата API токена и ID сертификата
@@ -45,13 +50,13 @@
 #
 # ▸ Примеры запуска
 #   # Бесплатный Let's Encrypt
-#   sudo bash installer-v1.6.4-unified.sh
+#   sudo bash installer-v1.6.5-unified.sh
 #
 #   # Коммерческий сертификат Timeweb PRO
 #   export CERT_MODE=timeweb
 #   export TIMEWEB_TOKEN="twc_xxx…"          # API read-only ключ
 #   export TIMEWEB_CERT_ID=123456
-#   sudo bash installer-v1.6.4-unified.sh
+#   sudo bash installer-v1.6.5-unified.sh
 # =====================================================================
 set -euo pipefail
 
@@ -182,11 +187,14 @@ case $CERT_CHOICE in
     
     info "Проверка подключения к Timeweb API..."
     # Тестовая проверка API (безопасная)
-    if curl -sf -H "Authorization: Bearer $TIMEWEB_TOKEN" "https://api.timeweb.cloud/api/v2/ssl-certificates" >/dev/null 2>&1; then
+    if curl -sf -H "Authorization: Bearer $TIMEWEB_TOKEN" "https://api.timeweb.cloud/api/v1/ssl-certificates" >/dev/null 2>&1; then
       good "API токен работает корректно"
+    elif curl -sf -H "Authorization: Bearer $TIMEWEB_TOKEN" "https://api.timeweb.cloud/api/v1/ssl" >/dev/null 2>&1; then
+      good "API токен работает корректно (альтернативный endpoint)"
     else
       warn "Не удалось подключиться к Timeweb API"
       warn "Проверьте правильность токена и подключение к интернету"
+      warn "Возможно, API endpoint изменился. Проверьте документацию Timeweb."
     fi
     ;;
   *)
@@ -361,7 +369,7 @@ if [[ $CERT_MODE == letsencrypt ]]; then
   cp /etc/letsencrypt/live/$PROXY_DOMAIN/privkey.pem   /etc/ssl/private/$PROXY_DOMAIN.key
 else
   info "Скачиваем Timeweb PRO сертификат…"
-  api="https://api.timeweb.cloud/api/v2"
+  api="https://api.timeweb.cloud/api/v1"
   hdr=(-H "Authorization: Bearer $TIMEWEB_TOKEN" -H "Accept: application/zip")
   tmp=$(mktemp -d); trap 'rm -rf $tmp' EXIT
   if ! curl -sf "${hdr[@]}" "$api/ssl-certificates/$TIMEWEB_CERT_ID/download" -o "$tmp/c.zip"; then
@@ -436,7 +444,7 @@ domain=$PROXY_DOMAIN
 remain=$(( ( $(date -d "$(openssl x509 -noout -enddate -in /etc/ssl/certs/$domain.pem | cut -d= -f2)" +%s) - $(date +%s) ) / 86400 ))
 (( remain > threshold )) && exit 0
 
-api="https://api.timeweb.cloud/api/v2"
+api="https://api.timeweb.cloud/api/v1"
 auth=(-H "Authorization: Bearer $TIMEWEB_TOKEN")
 
 curl -sf "${auth[@]}" -H "Content-Type: application/json" -X POST \
