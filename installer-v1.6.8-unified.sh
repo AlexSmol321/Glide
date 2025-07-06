@@ -1,10 +1,15 @@
 #!/bin/bash
 # =====================================================================
 # UNIVERSAL REVERSE PROXY INSTALLER — Minimal Stability Edition
-# Версия: 1.6.7-unified  (Node.js 20 LTS | dual-cert LE/Timeweb | auto-renew)
+# Версия: 1.6.8-unified  (Node.js 20 LTS | dual-cert LE/Timeweb | auto-renew)
 # Автор  : Proxy Deployment System
 #
 # Версионная история:
+# v1.6.8-unified (2024-12-19) - Расширенная диагностика и fallback на Let's Encrypt
+#   • Добавлена подробная диагностика HTTP кодов ответа
+#   • Расширен список API endpoints и базовых URL
+#   • Добавлен fallback на Let's Encrypt при ошибках Timeweb API
+#   • Улучшена обработка ошибок с альтернативными вариантами
 # v1.6.7-unified (2024-12-19) - Поддержка JWT токенов Timeweb
 #   • Добавлена поддержка JWT токенов (eyJ...)
 #   • Расширен список API endpoints для тестирования
@@ -60,13 +65,13 @@
 #
 # ▸ Примеры запуска
 #   # Бесплатный Let's Encrypt
-#   sudo bash installer-v1.6.7-unified.sh
+#   sudo bash installer-v1.6.8-unified.sh
 #
 #   # Коммерческий сертификат Timeweb PRO
 #   export CERT_MODE=timeweb
 #   export TIMEWEB_TOKEN="twc_xxx…"          # API read-only ключ
 #   export TIMEWEB_CERT_ID=123456
-#   sudo bash installer-v1.6.7-unified.sh
+#   sudo bash installer-v1.6.8-unified.sh
 # =====================================================================
 set -euo pipefail
 
@@ -206,16 +211,38 @@ case $CERT_CHOICE in
     fi
     
     info "Проверка подключения к Timeweb API..."
-    # Тестовая проверка API (безопасная)
-    if curl -sf -H "Authorization: Bearer $TIMEWEB_TOKEN" "https://api.timeweb.cloud/api/v1/ssl-certificates" >/dev/null 2>&1; then
-      good "API токен работает корректно"
-    elif curl -sf -H "Authorization: Bearer $TIMEWEB_TOKEN" "https://api.timeweb.cloud/api/v1/ssl" >/dev/null 2>&1; then
-      good "API токен работает корректно (альтернативный endpoint)"
-    elif curl -sf -H "Authorization: Bearer $TIMEWEB_TOKEN" "https://api.timeweb.cloud/api/v2/ssl-certificates" >/dev/null 2>&1; then
-      good "API токен работает корректно (v2 endpoint)"
-    elif curl -sf -H "Authorization: Bearer $TIMEWEB_TOKEN" "https://api.timeweb.cloud/ssl-certificates" >/dev/null 2>&1; then
-      good "API токен работает корректно (корневой endpoint)"
-    else
+    # Тестовая проверка API с подробной диагностикой
+    api_endpoints=(
+      "https://api.timeweb.cloud/api/v1/ssl-certificates"
+      "https://api.timeweb.cloud/api/v1/ssl"
+      "https://api.timeweb.cloud/api/v2/ssl-certificates"
+      "https://api.timeweb.cloud/ssl-certificates"
+      "https://api.timeweb.cloud/api/v1/certificates"
+      "https://api.timeweb.cloud/certificates"
+    )
+    
+    success=false
+    for endpoint in "${api_endpoints[@]}"; do
+      info "Тестируем endpoint: $endpoint"
+      response=$(curl -sf -w "%{http_code}" -H "Authorization: Bearer $TIMEWEB_TOKEN" "$endpoint" 2>/dev/null)
+      http_code="${response: -3}"
+      
+      if [[ "$http_code" == "200" ]]; then
+        good "API токен работает с: $endpoint"
+        success=true
+        break
+      elif [[ "$http_code" == "401" ]]; then
+        warn "Ошибка авторизации (401) для: $endpoint"
+      elif [[ "$http_code" == "403" ]]; then
+        warn "Доступ запрещен (403) для: $endpoint"
+      elif [[ "$http_code" == "404" ]]; then
+        warn "Endpoint не найден (404) для: $endpoint"
+      else
+        warn "HTTP код $http_code для: $endpoint"
+      fi
+    done
+    
+    if [[ "$success" == false ]]; then
       warn "Не удалось подключиться к Timeweb API"
       warn "Проверьте правильность токена и подключение к интернету"
       warn "Возможно, API endpoint изменился. Проверьте документацию Timeweb."
@@ -394,7 +421,17 @@ if [[ $CERT_MODE == letsencrypt ]]; then
   cp /etc/letsencrypt/live/$PROXY_DOMAIN/privkey.pem   /etc/ssl/private/$PROXY_DOMAIN.key
 else
   info "Скачиваем Timeweb PRO сертификат…"
-  api="https://api.timeweb.cloud/api/v1"
+  
+  # Попробуем разные базовые URL для API
+  api_urls=(
+    "https://api.timeweb.cloud/api/v1"
+    "https://api.timeweb.cloud/api/v2"
+    "https://api.timeweb.cloud"
+    "https://api.timeweb.com/api/v1"
+    "https://api.timeweb.com"
+  )
+  
+  api="https://api.timeweb.cloud/api/v1"  # По умолчанию
   hdr=(-H "Authorization: Bearer $TIMEWEB_TOKEN" -H "Accept: application/zip")
   tmp=$(mktemp -d); trap 'rm -rf $tmp' EXIT
   
@@ -418,6 +455,10 @@ else
     "$api/ssl/$TIMEWEB_CERT_ID/download"
     "https://api.timeweb.cloud/api/v2/ssl-certificates/$TIMEWEB_CERT_ID/download"
     "https://api.timeweb.cloud/ssl-certificates/$TIMEWEB_CERT_ID/download"
+    "https://api.timeweb.cloud/api/v1/certificates/$TIMEWEB_CERT_ID/download"
+    "https://api.timeweb.cloud/certificates/$TIMEWEB_CERT_ID/download"
+    "https://api.timeweb.cloud/api/v1/ssl-certificates/$TIMEWEB_CERT_ID"
+    "https://api.timeweb.cloud/api/v1/ssl/$TIMEWEB_CERT_ID"
   )
   
   success=false
@@ -433,12 +474,36 @@ else
   done
   
   if [[ "$success" == false ]]; then
-    fail "Ошибка скачивания сертификата Timeweb"
-    fail "Проверьте:"
-    fail "  • Правильность API токена"
-    fail "  • Правильность ID сертификата"
-    fail "  • Доступность API Timeweb"
-    fail "  • Права токена на чтение SSL-сертификатов"
+    warn "Не удалось скачать сертификат через API"
+    warn "Возможные причины:"
+    warn "  • Неправильный API endpoint"
+    warn "  • Недостаточно прав у токена"
+    warn "  • Сертификат еще не выдан"
+    warn "  • API Timeweb изменился"
+    echo ""
+    info "Альтернативные варианты:"
+    echo "1. Скачайте сертификат вручную из панели Timeweb"
+    echo "2. Используйте Let's Encrypt (бесплатно)"
+    echo "3. Обратитесь в поддержку Timeweb"
+    echo ""
+    read -p "Хотите продолжить с Let's Encrypt? (y/n): " use_letsencrypt
+    if [[ "$use_letsencrypt" =~ ^[Yy]$ ]]; then
+      info "Переключаемся на Let's Encrypt..."
+      CERT_MODE=letsencrypt
+      # Повторяем установку Let's Encrypt
+      info "Получаем сертификат Let's Encrypt…"
+      if ! certbot certonly --webroot -w /var/www/html \
+            -d "$PROXY_DOMAIN" --email "$SSL_EMAIL" --agree-tos --non-interactive; then
+        fail "Ошибка получения сертификата Let's Encrypt"
+      fi
+      cp /etc/letsencrypt/live/$PROXY_DOMAIN/fullchain.pem /etc/ssl/certs/$PROXY_DOMAIN.pem
+      cp /etc/letsencrypt/live/$PROXY_DOMAIN/privkey.pem   /etc/ssl/private/$PROXY_DOMAIN.key
+      chmod 600 /etc/ssl/private/$PROXY_DOMAIN.key
+      chmod 644 /etc/ssl/certs/$PROXY_DOMAIN.pem
+      good "Сертификат Let's Encrypt установлен"
+    else
+      fail "Установка прервана. Скачайте сертификат вручную и повторите установку."
+    fi
   fi
   
   info "Распаковываем сертификат..."
