@@ -469,27 +469,6 @@ RENEW
   # Добавляем в cron
   (crontab -l 2>/dev/null; echo "0 2 * * * $PROJECT_DIR/scripts/renew-letsencrypt.sh") | crontab -
   good "Auto-renew настроен для Let's Encrypt"
-else
-  info "Создаём скрипт проверки срока действия Timeweb PRO сертификата…"
-  cat > "$PROJECT_DIR/scripts/check-timeweb-cert.sh" <<'CHECK'
-#!/usr/bin/env bash
-set -euo pipefail
-source "$(dirname "$0")/../.env"
-[[ $CERT_MODE != timeweb ]] && exit 0
-
-domain=$PROXY_DOMAIN
-days_until_expiry=$(( ( $(date -d "$(openssl x509 -noout -enddate -in /etc/ssl/certs/$domain.pem | cut -d= -f2)" +%s) - $(date +%s) ) / 86400 ))
-
-if [[ $days_until_expiry -lt 30 ]]; then
-  echo "$(date) — ВНИМАНИЕ: Сертификат Timeweb PRO истекает через $days_until_expiry дней"
-  echo "Необходимо обновить сертификат в панели Timeweb и переустановить его"
-fi
-CHECK
-  chmod +x "$PROJECT_DIR/scripts/check-timeweb-cert.sh"
-  
-  # Добавляем в cron (проверка каждый день)
-  (crontab -l 2>/dev/null; echo "0 9 * * * $PROJECT_DIR/scripts/check-timeweb-cert.sh") | crontab -
-  good "Проверка срока действия настроена для Timeweb PRO"
 fi
 
 good "Установка завершена → https://$PROXY_DOMAIN/"
