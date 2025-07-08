@@ -440,7 +440,22 @@ nginx -t && systemctl reload nginx
 
 # ─── npm install + PM2 ───────────────────────────────────────────────
 cd "$PROJECT_DIR"
-npm ci --production -s
+
+info "Установка Node.js зависимостей…"
+rm -rf node_modules package-lock.json 2>/dev/null || true
+npm ci --production
+if [[ $? -ne 0 ]]; then
+  warn "npm ci не удался, пробуем npm install…"
+  npm cache clean --force
+  npm install --production
+fi
+good "Node.js зависимости установлены"
+
+# Проверяем, что основные модули установились
+if [[ ! -d "node_modules/dotenv" ]] || [[ ! -d "node_modules/express" ]] || [[ ! -d "node_modules/http-proxy-middleware" ]]; then
+  fail "Критические модули не установились. Проверьте подключение к интернету и права доступа."
+fi
+
 pm2 start ecosystem.config.js --env production
 pm2 save
 pm2 startup systemd -u root --hp /root >/dev/null
