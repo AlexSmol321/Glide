@@ -130,7 +130,12 @@ apt-get update -qq
 apt-get install -y curl wget gnupg2 software-properties-common nginx ufw jq unzip > /dev/null
 curl -fsSL https://deb.nodesource.com/setup_20.x | bash - >/dev/null
 apt-get install -y nodejs >/dev/null
-npm install -g pm2 >/dev/null
+
+# --- обновление pm2 до последней версии ---
+info "Обновление PM2 до последней версии…"
+npm install -g pm2@latest >/dev/null
+good "PM2 обновлён до последней версии"
+
 apt-get install -y certbot python3-certbot-nginx >/dev/null
 good "Установлено"
 
