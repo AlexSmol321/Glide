@@ -199,7 +199,7 @@ sudo bash installer-v1.6.5-unified.sh
   2. Повторите установку зависимостей вручную:
      ```sh
      cd /opt/<имя_проекта>
-     npm ci --production || npm install --production
+     npm install --production
      pm2 restart <имя_процесса>
      ```
   3. Убедитесь, что есть интернет и нет проблем с доступом к npm-репозиторию.

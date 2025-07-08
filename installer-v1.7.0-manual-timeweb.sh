@@ -443,9 +443,9 @@ cd "$PROJECT_DIR"
 
 info "Установка Node.js зависимостей…"
 rm -rf node_modules package-lock.json 2>/dev/null || true
-npm ci --production
+npm install --production
 if [[ $? -ne 0 ]]; then
-  warn "npm ci не удался, пробуем npm install…"
+  warn "npm install не удался, пробуем ещё раз…"
   npm cache clean --force
   npm install --production
 fi
