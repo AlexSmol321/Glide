@@ -1,0 +1,30 @@
+// JSONata для красивой HTML-таблицы в Glide (фиксировано 4 строки)
+// Вставьте это выражение в Glide Apps (Custom → JSONata)
+// Работает только если количество строк фиксировано (например, 4)
+// Если строк меньше, лишние строки будут пустыми
+// Если строк больше — добавьте аналогичные блоки для каждой строки
+
+(
+  $a := tableArray[0];
+  $b := tableArray[1];
+  $c := tableArray[2];
+  $d := tableArray[3];
+  "<div style=\"font-family:sans-serif;font-size:14px;\"><table style=\"width:100%;border-collapse:collapse;\">" &
+  ($a.column2 != null and $number($a.column2) = $a.column2 ?
+    "<tr style=\"border-bottom:1px solid #d3d3d3;\"><td style=\"padding:12px 8px;vertical-align:top;\">" & $a.column1 & "</td><td style=\"padding:12px 8px;text-align:right;white-space:nowrap;\">" & ($floor($a.column2) = $a.column2 ? $string($a.column2) : $string($round($a.column2 * 100) / 100)) & "</td></tr>"
+    : ""
+  ) &
+  ($b.column2 != null and $number($b.column2) = $b.column2 ?
+    "<tr style=\"border-bottom:1px solid #d3d3d3;\"><td style=\"padding:12px 8px;vertical-align:top;\"><strong>" & $b.column1 & "</strong></td><td style=\"padding:12px 8px;text-align:right;white-space:nowrap;\"><strong>" & ($floor($b.column2) = $b.column2 ? $string($b.column2) : $string($round($b.column2 * 100) / 100)) & "</strong></td></tr>"
+    : ""
+  ) &
+  ($c.column2 != null and $number($c.column2) = $c.column2 ?
+    "<tr style=\"border-bottom:1px solid #d3d3d3;\"><td style=\"padding:12px 8px;vertical-align:top;\">" & $c.column1 & "</td><td style=\"padding:12px 8px;text-align:right;white-space:nowrap;\">" & ($floor($c.column2) = $c.column2 ? $string($c.column2) : $string($round($c.column2 * 100) / 100)) & "</td></tr>"
+    : ""
+  ) &
+  ($d.column2 != null and $number($d.column2) = $d.column2 ?
+    "<tr style=\"\"><td style=\"padding:12px 8px;vertical-align:top;\"><strong>" & $d.column1 & "</strong></td><td style=\"padding:12px 8px;text-align:right;white-space:nowrap;\"><strong>" & ($floor($d.column2) = $d.column2 ? $string($d.column2) : $string($round($d.column2 * 100) / 100)) & "</strong></td></tr>"
+    : ""
+  ) &
+  "</table></div>"
+) 
